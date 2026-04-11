@@ -1,0 +1,96 @@
+name: AgentEval CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Job 1: Run Tests ────────────────────────────────────────────────────────
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest suite
+        env:
+          GROQ_API_KEY:              ${{ secrets.GROQ_API_KEY }}
+          LANGCHAIN_API_KEY:         ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2:      "false"
+          INDUSTRIAL_COPILOT_URL:    ${{ secrets.INDUSTRIAL_COPILOT_URL }}
+        run: pytest tests/ -v --tb=short
+
+  # ── Job 2: Regression Check ─────────────────────────────────────────────────
+  # Only runs on push to main (not PRs) after tests pass.
+  # Runs a lightweight RAG eval and fails the pipeline if score
+  # drops more than 5% compared to the previous run.
+  regression-check:
+    name: Regression Check
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run regression check
+        env:
+          GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
+          LANGCHAIN_API_KEY:      ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2:   "false"
+          INDUSTRIAL_COPILOT_URL: ${{ secrets.INDUSTRIAL_COPILOT_URL }}
+        run: python scripts/regression_check.py
+
+  # ── Job 3: Deploy to HuggingFace ────────────────────────────────────────────
+  # Only deploys after both test and regression-check pass.
+  deploy:
+    name: Deploy to HuggingFace Spaces
+    runs-on: ubuntu-latest
+    needs: [test, regression-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config user.email "ci@agenteval"
+          git config user.name  "AgentEval CI"
+          git remote add space \
+            https://victorisuo:$HF_TOKEN@huggingface.co/spaces/victorisuo/agenteval
+          git push space main:main --force
