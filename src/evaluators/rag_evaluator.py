@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 COPILOT_URL = os.getenv(
     "INDUSTRIAL_COPILOT_URL",
-    "https://victorisuo-industrial-ai-copilot.hf.space/ui"
+    "https://victorisuo-industrial-ai-copilot.hf.space/"
 )
 
 DATASET_PATH = Path(__file__).parent.parent.parent / "datasets" / "rag_eval_cases.json"
