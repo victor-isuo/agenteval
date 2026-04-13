@@ -3,4 +3,10 @@
 __pychache__/
 
 #data
-* .txt
+*.txt
+*.pyc
+*venv/
+.env
+*.db
+agenteval.db
+.pytest_cache/
