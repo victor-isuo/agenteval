@@ -1,1038 +1,946 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AgentEval — LLM Observability Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;700&family=Exo+2:wght@200;300;400;500;600&display=swap" rel="stylesheet"/>
-    <style>
-        :root {
-            --bg:       #03050a;
-            --surface:  #060a12;
-            --panel:    #080d18;
-            --card:     #0a1020;
-            --border:   #111d32;
-            --border2:  #172642;
-            --accent:   #00bfff;
-            --accent2:  #0077cc;
-            --green:    #00ffb0;
-            --yellow:   #ffc940;
-            --red:      #ff3f5e;
-            --purple:   #a87fff;
-            --orange:   #ff7744;
-            --text:     #cce4ff;
-            --text2:    #6899c4;
-            --dim:      #1a3050;
-            --orbitron: 'Orbitron', sans-serif;
-            --mono:     'JetBrains Mono', monospace;
-            --body:     'Exo 2', sans-serif;
-        }
-
-        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-
-        html { scroll-behavior: smooth; }
-
-        body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: var(--body);
-            min-height: 100vh;
-            overflow-x: hidden;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* ── GRID BACKGROUND ── */
-        body::before {
-            content: '';
-            position: fixed; inset: 0; z-index: 0;
-            background-image:
-                linear-gradient(rgba(0,180,255,0.025) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,180,255,0.025) 1px, transparent 1px);
-            background-size: 48px 48px;
-            pointer-events: none;
-        }
-
-        /* Radial ambient light */
-        body::after {
-            content: '';
-            position: fixed;
-            top: -30%;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 900px; height: 500px;
-            background: radial-gradient(ellipse at center, rgba(0,80,160,0.1) 0%, transparent 70%);
-            pointer-events: none; z-index: 0;
-        }
-
-        /* ── SCAN LINE ── */
-        .scanline {
-            position: fixed; top: 0; left: 0; right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent), transparent);
-            opacity: 0.35;
-            animation: scanMove 8s ease-in-out infinite;
-            z-index: 100; pointer-events: none;
-        }
-        @keyframes scanMove {
-            0%   { top: 0; opacity:0; }
-            5%   { opacity: 0.4; }
-            95%  { opacity: 0.4; }
-            100% { top: 100vh; opacity: 0; }
-        }
-
-        /* ── ANIMATIONS ── */
-        @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0.15} }
-        @keyframes spin     { to{transform:rotate(360deg)} }
-        @keyframes pulse    { 0%,100%{box-shadow:0 0 6px var(--accent)} 50%{box-shadow:0 0 18px var(--accent), 0 0 40px rgba(0,200,255,0.3)} }
-        @keyframes slideUp  { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes fadeIn   { from{opacity:0} to{opacity:1} }
-        @keyframes glowPulse{ 0%,100%{opacity:0.5} 50%{opacity:1} }
-        @keyframes borderRun {
-            0%   { background-position: 0% 50%; }
-            100% { background-position: 200% 50%; }
-        }
-        @keyframes countUp {
-            from { opacity:0; transform: scale(0.8) translateY(4px); }
-            to   { opacity:1; transform: scale(1) translateY(0); }
-        }
-
-        /* ── STAGGER ENTRY ── */
-        .stagger > * {
-            animation: slideUp 0.5s ease both;
-        }
-        .stagger > *:nth-child(1) { animation-delay: 0.05s; }
-        .stagger > *:nth-child(2) { animation-delay: 0.12s; }
-        .stagger > *:nth-child(3) { animation-delay: 0.19s; }
-        .stagger > *:nth-child(4) { animation-delay: 0.26s; }
-        .stagger > *:nth-child(5) { animation-delay: 0.33s; }
-
-        /* ════════════════════════════════
-           TOP BAR
-        ════════════════════════════════ */
-        .topbar {
-            position: sticky; top: 0; z-index: 50;
-            background: rgba(10,9,22,0.93);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border2);
-            padding: 0 28px;
-            display: flex; align-items: stretch; justify-content: space-between;
-            height: 58px;
-        }
-
-        .tb-left  { display: flex; align-items: center; gap: 0; }
-        .tb-right { display: flex; align-items: center; gap: 14px; }
-
-        /* Vertical accent stripe */
-        .tb-stripe {
-            width: 3px;
-            background: linear-gradient(180deg, var(--accent), var(--accent2));
-            margin-right: 18px;
-            border-radius: 0 2px 2px 0;
-            height: 32px;
-            box-shadow: 0 0 12px rgba(245,166,35,0.55);
-        }
-
-        .tb-brand { display: flex; flex-direction: column; gap: 2px; }
-
-        .tb-title {
-            font-family: var(--orbitron);
-            font-size: 16px; font-weight: 800;
-            letter-spacing: 4px;
-            color: var(--accent);
-            text-shadow: 0 0 20px rgba(245,166,35,0.6);
-            line-height: 1;
-        }
-
-        .tb-subtitle {
-            font-family: var(--mono);
-            font-size: 8px; letter-spacing: 2px;
-            color: var(--text2);
-            line-height: 1;
-        }
-
-
-
-        .live-badge {
-            display: flex; align-items: center; gap: 7px;
-            padding: 5px 12px;
-            border: 1px solid rgba(61,255,160,0.2);
-            background: rgba(61,255,160,0.04);
-        }
-        .live-dot {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: var(--green);
-            box-shadow: 0 0 8px var(--green);
-            animation: blink 1.4s infinite;
-        }
-        .live-text {
-            font-family: var(--mono); font-size: 8px;
-            letter-spacing: 2px; color: var(--green);
-        }
-
-        .sys-link {
-            display: flex; align-items: center; gap: 7px;
-            font-family: var(--mono); font-size: 9px;
-            letter-spacing: 1px; color: var(--text2);
-            text-decoration: none;
-            padding: 6px 14px;
-            border: 1px solid var(--border2);
-            transition: all 0.2s;
-            position: relative; overflow: hidden;
-        }
-        .sys-link::before {
-            content: '';
-            position: absolute; left: -100%; top: 0; bottom: 0; width: 100%;
-            background: linear-gradient(90deg, transparent, rgba(245,166,35,0.08), transparent);
-            transition: left 0.4s;
-        }
-        .sys-link:hover::before { left: 100%; }
-        .sys-link:hover { border-color: var(--accent); color: var(--accent); }
-
-        /* ════════════════════════════════
-           LAYOUT
-        ════════════════════════════════ */
-        .main {
-            position: relative; z-index: 2;
-            max-width: 1440px; margin: 0 auto;
-            padding: 24px 28px;
-            display: flex; flex-direction: column; gap: 18px;
-            animation: fadeIn 0.4s ease both;
-        }
-
-        /* Section header label */
-        .section-label {
-            font-family: var(--mono); font-size: 8px;
-            letter-spacing: 3px; color: var(--dim);
-            text-transform: uppercase;
-            display: flex; align-items: center; gap: 10px;
-            margin-bottom: 10px;
-        }
-        .section-label::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: linear-gradient(90deg, var(--border2), transparent);
-        }
-
-        /* ════════════════════════════════
-           SCORE CARDS
-        ════════════════════════════════ */
-        .score-cards {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 14px;
-        }
-
-        .score-card {
-            background: var(--card);
-            border: 1px solid var(--border2);
-            padding: 22px 22px 18px;
-            position: relative; overflow: hidden;
-            transition: transform 0.25s, box-shadow 0.25s;
-            cursor: default;
-        }
-
-        .score-card:hover {
-            transform: translateY(-2px);
-        }
-
-        /* Animated corner brackets */
-        .score-card::before,
-        .score-card::after {
-            content: '';
-            position: absolute;
-            width: 12px; height: 12px;
-            transition: width 0.3s, height 0.3s;
-        }
-        .score-card::before {
-            top: 0; left: 0;
-            border-top: 2px solid var(--card-color, var(--accent));
-            border-left: 2px solid var(--card-color, var(--accent));
-        }
-        .score-card::after {
-            bottom: 0; right: 0;
-            border-bottom: 2px solid var(--card-color, var(--accent));
-            border-right: 2px solid var(--card-color, var(--accent));
-        }
-        .score-card:hover::before,
-        .score-card:hover::after {
-            width: 20px; height: 20px;
-        }
-
-        /* Glow on hover per card color */
-        .score-card:hover {
-            box-shadow: 0 0 30px rgba(0,0,0,0.4), 0 0 0 1px rgba(var(--card-color-rgb, 0,200,255), 0.12);
-        }
-
-        /* Top accent line */
-        .card-topline {
-            position: absolute; top: 0; left: 0; right: 0; height: 1px;
-            background: var(--card-color, var(--accent));
-            opacity: 0.8;
-        }
-
-        .sc-head {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 14px;
-        }
-
-        .sc-mode {
-            font-family: var(--orbitron);
-            font-size: 9px; font-weight: 600;
-            letter-spacing: 2px;
-            color: var(--card-color, var(--accent));
-        }
-
-        .sc-icon {
-            width: 28px; height: 28px;
-            border: 1px solid var(--border2);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 13px; opacity: 0.7;
-        }
-
-        .sc-score {
-            font-family: var(--orbitron);
-            font-size: 48px; font-weight: 800;
-            letter-spacing: -1px;
-            line-height: 1;
-            color: var(--text);
-            margin-bottom: 12px;
-            animation: countUp 0.5s ease both;
-        }
-        .sc-score.good { color: var(--green);  text-shadow: 0 0 20px rgba(61,255,160,0.4); }
-        .sc-score.warn { color: var(--yellow); text-shadow: 0 0 20px rgba(255,224,102,0.35); }
-        .sc-score.bad  { color: var(--red);    text-shadow: 0 0 20px rgba(255,77,106,0.4); }
-        .sc-score.none { color: var(--dim); font-size: 32px; font-weight: 400; }
-
-        .sc-divider {
-            height: 1px;
-            background: linear-gradient(90deg, var(--border2), transparent);
-            margin-bottom: 12px;
-        }
-
-        .sc-meta {
-            display: grid; grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
-        .sc-stat {
-            display: flex; flex-direction: column; gap: 2px;
-        }
-        .sc-stat-label {
-            font-family: var(--mono); font-size: 7px;
-            letter-spacing: 2px; color: var(--dim);
-            text-transform: uppercase;
-        }
-        .sc-stat-value {
-            font-family: var(--orbitron); font-size: 13px; font-weight: 600;
-            color: var(--text2);
-        }
-
-        .sc-date {
-            font-family: var(--mono); font-size: 8px;
-            color: var(--dim); margin-top: 10px;
-            letter-spacing: 1px;
-        }
-
-        /* ════════════════════════════════
-           ALERTS
-        ════════════════════════════════ */
-        .alerts-section { display: none; }
-        .alerts-section.visible { display: block; }
-
-        .alert-card {
-            background: rgba(255,69,102,0.05);
-            border: 1px solid rgba(255,69,102,0.25);
-            border-left: 3px solid var(--red);
-            padding: 12px 16px;
-            display: flex; align-items: center; gap: 14px;
-            margin-bottom: 8px;
-            animation: slideUp 0.3s ease both;
-        }
-
-        .alert-icon { font-size: 14px; color: var(--red); flex-shrink: 0; }
-        .alert-text { flex: 1; font-family: var(--mono); font-size: 10px; color: var(--text2); line-height: 1.6; }
-        .alert-text strong { color: var(--red); letter-spacing: 1px; }
-
-        /* ════════════════════════════════
-           PANEL
-        ════════════════════════════════ */
-        .panel {
-            background: var(--card);
-            border: 1px solid var(--border2);
-            overflow: hidden;
-            position: relative;
-        }
-
-        .panel-head {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 18px;
-            border-bottom: 1px solid var(--border);
-            background: rgba(155,127,255,0.03);
-        }
-
-        .panel-title-wrap { display: flex; align-items: center; gap: 10px; }
-
-        .panel-indicator {
-            width: 2px; height: 14px;
-            background: var(--accent);
-            box-shadow: 0 0 6px var(--accent);
-        }
-
-        .panel-title {
-            font-family: var(--orbitron);
-            font-size: 9px; font-weight: 700;
-            color: var(--accent); letter-spacing: 2px;
-        }
-
-        .panel-meta {
-            font-family: var(--mono); font-size: 8px;
-            color: var(--dim); letter-spacing: 1px;
-        }
-
-        /* ════════════════════════════════
-           EVAL CONTROLS
-        ════════════════════════════════ */
-        .eval-grid {
-            padding: 18px;
-            display: grid;
-            grid-template-columns: repeat(3, 1fr) auto;
-            gap: 10px;
-            align-items: end;
-        }
-
-        .eval-col { display: flex; flex-direction: column; gap: 4px; }
-
-
-
-        .run-btn {
-            font-family: var(--orbitron);
-            font-size: 9px; font-weight: 600;
-            letter-spacing: 1px;
-            padding: 10px 16px;
-            border: 1px solid var(--border2);
-            background: transparent;
-            color: var(--text2);
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative; overflow: hidden;
-            width: 100%;
-            text-transform: uppercase;
-        }
-
-        .run-btn::before {
-            content: '';
-            position: absolute; left: -100%; top: 0; bottom: 0; width: 100%;
-            background: linear-gradient(90deg, transparent, rgba(245,166,35,0.07), transparent);
-            transition: left 0.3s;
-        }
-        .run-btn:hover::before { left: 100%; }
-        .run-btn:hover { border-color: var(--purple); color: var(--purple); }
-
-        .run-btn.rag-btn:hover   { border-color: var(--accent); color: var(--accent); }
-        .run-btn.agent-btn:hover { border-color: var(--green);  color: var(--green);  }
-        .run-btn.multi-btn:hover { border-color: var(--teal);   color: var(--teal);   }
-
-        .run-btn.primary {
-            background: linear-gradient(135deg, var(--accent2), var(--accent));
-            border-color: var(--accent);
-            color: #0c0a00;
-            font-weight: 800;
-            box-shadow: 0 0 16px rgba(245,166,35,0.3);
-        }
-        .run-btn.primary::before { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); }
-        .run-btn.primary:hover { box-shadow: 0 0 30px rgba(245,166,35,0.5); transform: translateY(-1px); }
-        .run-btn:disabled { opacity:0.35; cursor:not-allowed; transform:none !important; }
-
-        .run-status-bar {
-            padding: 10px 18px;
-            border-top: 1px solid var(--border);
-            display: flex; align-items: center; gap: 10px;
-            background: rgba(0,0,0,0.2);
-            min-height: 40px;
-        }
-
-        .run-spinner {
-            width: 14px; height: 14px;
-            border: 1px solid var(--border2);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-            display: none; flex-shrink: 0;
-        }
-        .run-spinner.visible { display: block; }
-
-        #runStatusText {
-            font-family: var(--mono); font-size: 9px;
-            color: var(--text2); letter-spacing: 1px;
-        }
-
-        /* ════════════════════════════════
-           TWO-COLUMN
-        ════════════════════════════════ */
-        .two-col {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
-        }
-
-        /* ════════════════════════════════
-           RUNS TABLE
-        ════════════════════════════════ */
-        .runs-table {
-            width: 100%; border-collapse: collapse;
-        }
-
-        .runs-table th {
-            font-family: var(--mono); font-size: 7px;
-            letter-spacing: 2px; color: var(--dim);
-            text-transform: uppercase;
-            padding: 10px 14px; text-align: left;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
-        }
-
-        .runs-table td {
-            font-family: var(--mono); font-size: 10px;
-            color: var(--text2);
-            padding: 10px 14px;
-            border-bottom: 1px solid rgba(13,31,51,0.7);
-            transition: background 0.15s;
-        }
-
-        .runs-table tr:last-child td { border-bottom: none; }
-        .runs-table tbody tr:hover td { background: rgba(0,200,255,0.03); }
-
-        .mode-badge {
-            display: inline-block;
-            padding: 3px 9px; font-size: 7px;
-            letter-spacing: 1.5px;
-            border: 1px solid; font-family: var(--orbitron); font-weight: 600;
-        }
-        .mode-badge.rag         { border-color:rgba(0,200,255,0.4);  color:var(--accent); }
-        .mode-badge.agent       { border-color:rgba(0,255,163,0.4);  color:var(--green);  }
-        .mode-badge.multi_agent { border-color:rgba(168,85,247,0.4); color:var(--purple); }
-
-        .score-pill {
-            font-family: var(--orbitron); font-size: 10px; font-weight: 700;
-        }
-        .score-pill.good { color: var(--green); }
-        .score-pill.warn { color: var(--yellow); }
-        .score-pill.bad  { color: var(--red); }
-
-        /* ════════════════════════════════
-           TABS
-        ════════════════════════════════ */
-        .tabs {
-            display: flex; gap: 0;
-            border-bottom: 1px solid var(--border);
-        }
-        .tab {
-            font-family: var(--orbitron);
-            font-size: 8px; font-weight: 600; letter-spacing: 1.5px;
-            padding: 10px 18px; cursor: pointer; color: var(--dim);
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s; background: none;
-            border-top:none; border-left:none; border-right:none;
-            text-transform: uppercase;
-        }
-        .tab:hover { color: var(--text2); }
-        .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-        /* ════════════════════════════════
-           FAILURES
-        ════════════════════════════════ */
-        .failure-item {
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.15s;
-        }
-        .failure-item:last-child { border-bottom: none; }
-        .failure-item:hover { background: rgba(255,69,102,0.03); }
-
-        .fi-header {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 5px;
-        }
-        .fi-id {
-            font-family: var(--orbitron); font-size: 9px; font-weight: 600;
-            color: var(--red); letter-spacing: 1px;
-        }
-        .fi-score { font-family: var(--mono); font-size: 8px; color: var(--dim); }
-        .fi-query {
-            font-family: var(--body); font-size: 11px; color: var(--text2);
-            margin-bottom: 4px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .fi-reason {
-            font-family: var(--mono); font-size: 8px;
-            color: var(--dim); line-height: 1.6;
-        }
-
-        /* ════════════════════════════════
-           EMPTY STATE
-        ════════════════════════════════ */
-        .empty {
-            padding: 36px 20px; text-align: center;
-            font-family: var(--mono); font-size: 10px;
-            color: var(--dim); letter-spacing: 1px;
-        }
-
-
-
-        /* ════════════════════════════════
-           RESPONSIVE — TABLET
-        ════════════════════════════════ */
-        @media (max-width: 1024px) {
-            .eval-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-
-        /* ════════════════════════════════
-           RESPONSIVE — MOBILE
-        ════════════════════════════════ */
-        @media (max-width: 768px) {
-            .topbar {
-                padding: 0 16px;
-                height: auto;
-                min-height: 56px;
-                flex-wrap: wrap;
-                gap: 0;
-            }
-
-            .tb-left  { padding: 10px 0; flex: 1; min-width: 200px; }
-            .tb-right { padding: 10px 0; }
-
-            .project-badge { display: none; }
-
-            .tb-title   { font-size: 14px; letter-spacing: 3px; }
-            .tb-subtitle { font-size: 7px; }
-
-            .main { padding: 14px 14px; gap: 14px; }
-
-            .score-cards { grid-template-columns: 1fr; }
-
-            .score-card { padding: 16px 16px 14px; }
-            .sc-score   { font-size: 38px; }
-
-            .eval-grid {
-                grid-template-columns: 1fr 1fr;
-                padding: 14px;
-                gap: 8px;
-            }
-            /* "Run All" spans full width on mobile */
-            .eval-col.run-all {
-                grid-column: 1 / -1;
-            }
-
-            .two-col { grid-template-columns: 1fr; }
-
-            .runs-table th:nth-child(5),
-            .runs-table td:nth-child(5),
-            .runs-table th:nth-child(6),
-            .runs-table td:nth-child(6) {
-                display: none;
-            }
-
-            .sys-link .link-text { display: none; }
-        }
-
-        @media (max-width: 420px) {
-            .tb-title   { font-size: 12px; letter-spacing: 2px; }
-            .sc-score   { font-size: 32px; }
-        }
-
-        /* ── SCROLLBAR ── */
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: var(--bg); }
-        ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
-    </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AgentEval — LLM Observability Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:      #03050c;
+  --bg1:     #060910;
+  --bg2:     #080d16;
+  --bg3:     #0b1220;
+  --border:  #101e30;
+  --border2: #182840;
+  --accent:  #00b8d9;
+  --accent2: #007fa0;
+  --green:   #00e676;
+  --yellow:  #ffc940;
+  --red:     #ff4d6a;
+  --text:    #d8eaf8;
+  --body:    #7a9ab8;
+  --dim:     #2a4260;
+
+  --display: 'Bricolage Grotesque', sans-serif;
+  --sans:    'Inter', sans-serif;
+  --mono:    'JetBrains Mono', monospace;
+}
+
+html{scroll-behavior:smooth}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.5;
+  min-height:100vh;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* Grid */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;
+  background-image:
+    linear-gradient(rgba(0,184,217,.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,184,217,.022) 1px,transparent 1px);
+  background-size:44px 44px;
+  pointer-events:none;
+}
+
+/* Ambient */
+body::after{
+  content:'';position:fixed;
+  top:-20%;left:50%;transform:translateX(-50%);
+  width:800px;height:400px;
+  background:radial-gradient(ellipse,rgba(0,80,140,.08) 0%,transparent 70%);
+  pointer-events:none;z-index:0;
+}
+
+/* Scan line */
+.scanline{
+  position:fixed;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  opacity:.3;animation:scanMove 9s linear infinite;
+  z-index:200;pointer-events:none;
+}
+@keyframes scanMove{0%{top:0;opacity:0}4%{opacity:.35}96%{opacity:.35}100%{top:100vh;opacity:0}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* ── TOPBAR ── */
+.topbar{
+  position:sticky;top:0;z-index:100;
+  background:rgba(3,5,12,.95);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border2);
+  padding:0 28px;
+  display:flex;align-items:center;justify-content:space-between;
+  height:56px;
+}
+
+.tb-left{display:flex;align-items:center;gap:16px}
+
+.tb-brand-mark{
+  width:3px;height:28px;
+  background:var(--accent);
+  border-radius:2px;
+  box-shadow:0 0 10px rgba(0,184,217,.5);
+  flex-shrink:0;
+}
+
+.tb-brand{}
+
+.tb-title{
+  font-family:var(--display);
+  font-size:17px;font-weight:800;
+  letter-spacing:.05em;
+  color:var(--text);
+  line-height:1;
+}
+
+.tb-title span{color:var(--accent)}
+
+.tb-sub{
+  font-family:var(--mono);
+  font-size:8px;letter-spacing:.18em;
+  color:var(--dim);margin-top:3px;
+  text-transform:uppercase;
+}
+
+.tb-right{display:flex;align-items:center;gap:10px}
+
+.live-pill{
+  display:flex;align-items:center;gap:7px;
+  padding:5px 12px;
+  border:1px solid rgba(0,230,118,.2);
+  background:rgba(0,230,118,.04);
+}
+.live-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 8px var(--green);
+  animation:blink 1.4s infinite;
+}
+.live-label{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.18em;color:var(--green);
+  text-transform:uppercase;
+}
+
+.ext-link{
+  display:flex;align-items:center;gap:7px;
+  font-family:var(--mono);font-size:9px;letter-spacing:.1em;
+  color:var(--body);text-decoration:none;
+  padding:6px 14px;border:1px solid var(--border2);
+  transition:all .2s;
+}
+.ext-link:hover{border-color:var(--accent);color:var(--accent)}
+.ext-link-text{}
+
+/* ── MAIN ── */
+.main{
+  position:relative;z-index:2;
+  max-width:1440px;margin:0 auto;
+  padding:24px 28px;
+  display:flex;flex-direction:column;gap:20px;
+  animation:fadeIn .4s ease both;
+}
+
+/* Section row label */
+.row-label{
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.22em;color:var(--dim);
+  text-transform:uppercase;
+  display:flex;align-items:center;gap:12px;
+  margin-bottom:12px;
+}
+.row-label::after{
+  content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,var(--border2),transparent);
+}
+
+/* ── SCORE CARDS ── */
+.score-cards{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+}
+
+.sc{
+  background:var(--bg2);
+  border:1px solid var(--border2);
+  padding:0;
+  position:relative;overflow:hidden;
+  transition:border-color .25s;
+}
+.sc:hover{border-color:var(--accent2)}
+
+/* Top accent bar */
+.sc-bar{
+  height:2px;
+  background:var(--sc-color,var(--accent));
+  opacity:.7;
+}
+
+.sc-body{padding:20px 22px 18px}
+
+.sc-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:16px;
+}
+
+.sc-mode{
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.18em;text-transform:uppercase;
+  color:var(--sc-color,var(--accent));
+}
+
+.sc-status-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--dim);
+}
+.sc-status-dot.online{
+  background:var(--sc-color,var(--accent));
+  box-shadow:0 0 6px var(--sc-color,var(--accent));
+}
+
+.sc-score{
+  font-family:var(--display);font-weight:800;
+  font-size:52px;line-height:1;
+  letter-spacing:-.03em;
+  color:var(--text);margin-bottom:16px;
+}
+.sc-score.good{color:var(--green)}
+.sc-score.warn{color:var(--yellow)}
+.sc-score.bad{color:var(--red)}
+.sc-score.none{
+  color:var(--dim);
+  font-size:32px;font-family:var(--mono);font-weight:400;
+}
+
+.sc-divider{
+  height:1px;
+  background:linear-gradient(90deg,var(--border2),transparent);
+  margin-bottom:14px;
+}
+
+.sc-stats{
+  display:grid;grid-template-columns:1fr 1fr;
+  gap:10px;margin-bottom:12px;
+}
+
+.sc-stat-label{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.15em;color:var(--dim);
+  text-transform:uppercase;margin-bottom:3px;
+}
+
+.sc-stat-val{
+  font-family:var(--mono);font-size:14px;font-weight:500;
+  color:var(--body);
+}
+
+.sc-date{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.08em;color:var(--dim);
+}
+
+/* ── ALERTS ── */
+.alerts-wrap{display:none}
+.alerts-wrap.visible{display:block}
+
+.alert-item{
+  background:rgba(255,77,106,.05);
+  border:1px solid rgba(255,77,106,.2);
+  border-left:2px solid var(--red);
+  padding:12px 16px;
+  display:flex;align-items:flex-start;gap:12px;
+  margin-bottom:8px;
+  animation:slideUp .3s ease both;
+}
+.alert-icon{color:var(--red);font-size:13px;flex-shrink:0;margin-top:1px}
+.alert-body{
+  font-family:var(--mono);font-size:10px;
+  color:var(--body);line-height:1.65;
+}
+.alert-body strong{color:var(--red);letter-spacing:.08em}
+
+/* ── PANEL ── */
+.panel{
+  background:var(--bg1);
+  border:1px solid var(--border2);
+  overflow:hidden;
+}
+
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px;
+  border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,.15);
+}
+
+.panel-title{
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.18em;text-transform:uppercase;
+  color:var(--accent);
+}
+
+.panel-title-bar{
+  width:2px;height:12px;
+  background:var(--accent);
+  box-shadow:0 0 6px var(--accent);
+  flex-shrink:0;
+}
+
+.panel-meta{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.08em;color:var(--dim);
+}
+
+/* ── EVAL CONTROLS ── */
+.eval-grid{
+  padding:18px;
+  display:grid;
+  grid-template-columns:repeat(3,1fr) auto;
+  gap:10px;
+  align-items:end;
+}
+
+.eval-col{display:flex;flex-direction:column;gap:5px}
+
+.eval-label{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);
+}
+
+.run-btn{
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase;
+  padding:10px 16px;
+  border:1px solid var(--border2);
+  background:transparent;color:var(--body);
+  cursor:pointer;transition:all .2s;
+  width:100%;position:relative;overflow:hidden;
+}
+.run-btn::after{
+  content:'';
+  position:absolute;left:-100%;top:0;bottom:0;width:100%;
+  background:linear-gradient(90deg,transparent,rgba(0,184,217,.06),transparent);
+  transition:left .35s;
+}
+.run-btn:hover::after{left:100%}
+.run-btn:hover{border-color:var(--accent);color:var(--accent)}
+.run-btn.all-btn{
+  background:var(--accent);
+  color:var(--bg);border-color:var(--accent);
+  font-weight:500;
+  box-shadow:0 0 14px rgba(0,184,217,.25);
+}
+.run-btn.all-btn::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent)}
+.run-btn.all-btn:hover{box-shadow:0 0 28px rgba(0,184,217,.4);transform:translateY(-1px)}
+.run-btn:disabled{opacity:.35;cursor:not-allowed;transform:none!important}
+
+.run-status-bar{
+  padding:10px 18px;border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+  background:rgba(0,0,0,.2);min-height:40px;
+}
+.run-spinner{
+  width:13px;height:13px;
+  border:1px solid var(--border2);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .75s linear infinite;
+  display:none;flex-shrink:0;
+}
+.run-spinner.visible{display:block}
+#runStatusText{
+  font-family:var(--mono);font-size:9px;
+  color:var(--body);letter-spacing:.08em;
+}
+
+/* ── TWO COL ── */
+.two-col{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+}
+
+/* ── RUNS TABLE ── */
+.runs-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+.runs-table{width:100%;border-collapse:collapse;min-width:460px}
+
+.runs-table th{
+  font-family:var(--mono);font-size:8px;
+  letter-spacing:.18em;color:var(--dim);
+  text-transform:uppercase;
+  padding:10px 14px;text-align:left;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;background:rgba(0,0,0,.1);
+}
+
+.runs-table td{
+  font-family:var(--mono);font-size:11px;
+  color:var(--body);
+  padding:10px 14px;
+  border-bottom:1px solid rgba(16,30,48,.8);
+  transition:background .15s;
+}
+.runs-table tr:last-child td{border-bottom:none}
+.runs-table tbody tr:hover td{background:rgba(0,184,217,.03)}
+
+.mode-chip{
+  display:inline-flex;align-items:center;
+  padding:3px 9px;border:1px solid;
+  font-family:var(--mono);font-size:8px;letter-spacing:.1em;
+  white-space:nowrap;
+}
+.mode-chip.rag        {border-color:rgba(0,184,217,.35);color:var(--accent)}
+.mode-chip.agent      {border-color:rgba(0,230,118,.35);color:var(--green)}
+.mode-chip.multi_agent{border-color:rgba(255,201,64,.35);color:var(--yellow)}
+
+.score-chip{
+  font-family:var(--mono);font-size:11px;font-weight:500;
+}
+.score-chip.good{color:var(--green)}
+.score-chip.warn{color:var(--yellow)}
+.score-chip.bad{color:var(--red)}
+
+/* ── TABS ── */
+.tabs{
+  display:flex;
+  border-bottom:1px solid var(--border);
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.tabs::-webkit-scrollbar{display:none}
+
+.tab{
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.16em;text-transform:uppercase;
+  padding:10px 18px;cursor:pointer;
+  color:var(--dim);white-space:nowrap;
+  border-bottom:1px solid transparent;
+  transition:all .2s;flex-shrink:0;
+  background:none;border-top:none;border-left:none;border-right:none;
+}
+.tab:hover{color:var(--body)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── FAILURES ── */
+.failure-item{
+  padding:14px 18px;
+  border-bottom:1px solid var(--border);
+  transition:background .15s;
+}
+.failure-item:last-child{border-bottom:none}
+.failure-item:hover{background:rgba(255,77,106,.03)}
+
+.fi-top{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:6px;
+}
+.fi-id{
+  font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;color:var(--red);
+  text-transform:uppercase;
+}
+.fi-score{
+  font-family:var(--mono);font-size:9px;color:var(--dim);
+}
+.fi-query{
+  font-family:var(--sans);font-size:12px;font-weight:400;
+  color:var(--body);margin-bottom:5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.fi-reason{
+  font-family:var(--mono);font-size:9px;
+  color:var(--dim);line-height:1.7;
+}
+
+/* ── EMPTY ── */
+.empty{
+  padding:36px 20px;text-align:center;
+  font-family:var(--mono);font-size:10px;
+  color:var(--dim);letter-spacing:.1em;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent2)}
+
+/* ══════════════════════════════
+   RESPONSIVE — TABLET ≤ 1024px
+══════════════════════════════ */
+@media(max-width:1024px){
+  .eval-grid{grid-template-columns:1fr 1fr}
+  .eval-col.all-col{grid-column:1/-1}
+}
+
+/* ══════════════════════════════
+   RESPONSIVE — MOBILE ≤ 768px
+══════════════════════════════ */
+@media(max-width:768px){
+  .topbar{padding:0 16px;height:auto;min-height:52px;flex-wrap:wrap;gap:8px}
+  .tb-left{padding:10px 0;flex:1}
+  .tb-right{padding:10px 0}
+  .tb-title{font-size:15px}
+  .ext-link-text{display:none}
+
+  .main{padding:14px 16px;gap:14px}
+
+  .score-cards{
+    grid-template-columns:1fr;
+    gap:10px;
+  }
+  .sc-score{font-size:44px}
+
+  .eval-grid{
+    grid-template-columns:1fr 1fr;
+    padding:14px;gap:8px;
+  }
+  .eval-col.all-col{grid-column:1/-1}
+
+  .two-col{grid-template-columns:1fr;gap:10px}
+
+  /* Hide less important columns in table on mobile */
+  .runs-table th:nth-child(5),
+  .runs-table td:nth-child(5),
+  .runs-table th:nth-child(6),
+  .runs-table td:nth-child(6){display:none}
+
+  .panel-head{padding:10px 14px}
+  .panel-title{font-size:8px}
+
+  .failure-item{padding:12px 14px}
+}
+
+/* ══════════════════════════════
+   RESPONSIVE — SMALL ≤ 420px
+══════════════════════════════ */
+@media(max-width:420px){
+  .tb-title{font-size:14px}
+  .sc-score{font-size:38px}
+  .score-cards{gap:8px}
+  .main{padding:12px 12px;gap:12px}
+
+  /* On very small screens, only show 3 runs table columns */
+  .runs-table th:nth-child(4),
+  .runs-table td:nth-child(4){display:none}
+}
+
+/* Touch targets */
+@media(max-width:768px){
+  .run-btn,.tab{min-height:44px}
+  .ext-link{min-height:40px}
+}
+</style>
 </head>
 <body>
 
 <div class="scanline"></div>
 
-<!-- ══════════ TOP BAR ══════════ -->
+<!-- TOP BAR -->
 <header class="topbar">
-    <div class="tb-left">
-        <div class="tb-stripe"></div>
-        <div class="tb-brand">
-            <div class="tb-title">AGENTEVAL</div>
-            <div class="tb-subtitle">LLM EVALUATION &amp; OBSERVABILITY PLATFORM</div>
-        </div>
-
+  <div class="tb-left">
+    <div class="tb-brand-mark"></div>
+    <div class="tb-brand">
+      <div class="tb-title">Agent<span>Eval</span></div>
+      <div class="tb-sub">LLM Evaluation &amp; Observability</div>
     </div>
-    <div class="tb-right">
-        <div class="live-badge">
-            <div class="live-dot"></div>
-            <span class="live-text">LIVE</span>
-        </div>
-        <a href="https://victorisuo-industrial-ai-copilot.hf.space/multiagent-ui"
-           target="_blank" class="sys-link">
-            <span class="link-text">SYSTEM UNDER EVAL</span>
-            <span>→</span>
-        </a>
+  </div>
+  <div class="tb-right">
+    <div class="live-pill">
+      <div class="live-dot"></div>
+      <span class="live-label">Live</span>
     </div>
+    <a href="https://victorisuo-industrial-ai-copilot.hf.space/multiagent-ui"
+       target="_blank" rel="noopener noreferrer" class="ext-link">
+      <span class="ext-link-text">System Under Eval</span>
+      <span>→</span>
+    </a>
+  </div>
 </header>
 
-<!-- ══════════ MAIN ══════════ -->
-<div class="main stagger">
+<!-- MAIN -->
+<div class="main">
 
-    <!-- SCORE CARDS -->
-    <div>
-        <div class="section-label">EVAL SCORES · LATEST RUN</div>
-        <div class="score-cards stagger">
+  <!-- SCORE CARDS -->
+  <div>
+    <div class="row-label">Eval Scores · Latest Run</div>
+    <div class="score-cards">
 
-            <!-- RAG -->
-            <div class="score-card" style="--card-color:var(--accent); --card-color-rgb:0,200,255">
-                <div class="card-topline"></div>
-                <div class="sc-head">
-                    <span class="sc-mode">RAG PIPELINE</span>
-                    <div class="sc-icon">⬡</div>
-                </div>
-                <div class="sc-score none" id="rag-score">—</div>
-                <div class="sc-divider"></div>
-                <div class="sc-meta">
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Pass Rate</span>
-                        <span class="sc-stat-value" id="rag-pass">—</span>
-                    </div>
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Avg Latency</span>
-                        <span class="sc-stat-value" id="rag-latency">—</span>
-                    </div>
-                </div>
-                <div class="sc-date" id="rag-date">No runs yet</div>
-            </div>
-
-            <!-- AGENT -->
-            <div class="score-card" style="--card-color:var(--green); --card-color-rgb:0,255,163">
-                <div class="card-topline"></div>
-                <div class="sc-head">
-                    <span class="sc-mode">SINGLE AGENT</span>
-                    <div class="sc-icon">◈</div>
-                </div>
-                <div class="sc-score none" id="agent-score">—</div>
-                <div class="sc-divider"></div>
-                <div class="sc-meta">
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Pass Rate</span>
-                        <span class="sc-stat-value" id="agent-pass">—</span>
-                    </div>
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Avg Latency</span>
-                        <span class="sc-stat-value" id="agent-latency">—</span>
-                    </div>
-                </div>
-                <div class="sc-date" id="agent-date">No runs yet</div>
-            </div>
-
-            <!-- MULTI-AGENT -->
-            <div class="score-card" style="--card-color:var(--purple); --card-color-rgb:168,85,247">
-                <div class="card-topline"></div>
-                <div class="sc-head">
-                    <span class="sc-mode">MULTI-AGENT</span>
-                    <div class="sc-icon">⬡</div>
-                </div>
-                <div class="sc-score none" id="multi-score">—</div>
-                <div class="sc-divider"></div>
-                <div class="sc-meta">
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Pass Rate</span>
-                        <span class="sc-stat-value" id="multi-pass">—</span>
-                    </div>
-                    <div class="sc-stat">
-                        <span class="sc-stat-label">Avg Latency</span>
-                        <span class="sc-stat-value" id="multi-latency">—</span>
-                    </div>
-                </div>
-                <div class="sc-date" id="multi-date">No runs yet</div>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- REGRESSION ALERTS -->
-    <div class="alerts-section" id="alertsSection">
-        <div class="section-label">REGRESSION ALERTS</div>
-        <div id="alertsList"></div>
-    </div>
-
-    <!-- TRIGGER EVALUATION -->
-    <div class="panel">
-        <div class="panel-head">
-            <div class="panel-title-wrap">
-                <div class="panel-indicator"></div>
-                <span class="panel-title">TRIGGER EVALUATION</span>
-            </div>
-            <span class="panel-meta">Connects to live Industrial AI Copilot system</span>
-        </div>
-        <div class="eval-grid">
-            <div class="eval-col">
-                <button class="run-btn rag-btn" onclick="triggerEval('rag')">RAG Eval</button>
-            </div>
-            <div class="eval-col">
-                <button class="run-btn agent-btn" onclick="triggerEval('agent')">Agent Eval</button>
-            </div>
-            <div class="eval-col">
-                <button class="run-btn multi-btn" onclick="triggerEval('multi-agent')">Multi-Agent Eval</button>
-            </div>
-            <div class="eval-col run-all">
-                <button class="run-btn primary" onclick="triggerEval('all')">Run All Suites</button>
-            </div>
-        </div>
-        <div class="run-status-bar">
-            <div class="run-spinner" id="runSpinner"></div>
-            <span id="runStatusText" style="font-family:var(--mono);font-size:9px;color:var(--text2);letter-spacing:1px;"></span>
-        </div>
-    </div>
-
-    <!-- RECENT RUNS + FAILURES -->
-    <div class="two-col">
-
-        <!-- Recent Runs -->
-        <div class="panel">
-            <div class="panel-head">
-                <div class="panel-title-wrap">
-                    <div class="panel-indicator" style="background:var(--green);box-shadow:0 0 6px var(--green)"></div>
-                    <span class="panel-title">RECENT EVAL RUNS</span>
-                </div>
-                <button class="run-btn" onclick="loadDashboard()"
-                        style="padding:5px 12px;font-size:8px;width:auto;">REFRESH</button>
+      <!-- RAG -->
+      <div class="sc" style="--sc-color:var(--accent)">
+        <div class="sc-bar"></div>
+        <div class="sc-body">
+          <div class="sc-header">
+            <span class="sc-mode">RAG Pipeline</span>
+            <div class="sc-status-dot online" id="rag-status-dot"></div>
+          </div>
+          <div class="sc-score none" id="rag-score">—</div>
+          <div class="sc-divider"></div>
+          <div class="sc-stats">
+            <div>
+              <div class="sc-stat-label">Pass Rate</div>
+              <div class="sc-stat-val" id="rag-pass">—</div>
             </div>
             <div>
-                <table class="runs-table" id="runsTable">
-                    <thead>
-                        <tr>
-                            <th>Mode</th>
-                            <th>Score</th>
-                            <th>Pass Rate</th>
-                            <th>Cases</th>
-                            <th>Latency</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="runsBody">
-                        <tr><td colspan="6" class="empty">No runs yet. Trigger an evaluation above.</td></tr>
-                    </tbody>
-                </table>
+              <div class="sc-stat-label">Avg Latency</div>
+              <div class="sc-stat-val" id="rag-latency">—</div>
             </div>
+          </div>
+          <div class="sc-date" id="rag-date">No runs yet</div>
         </div>
+      </div>
 
-        <!-- Failure Analysis -->
-        <div class="panel">
-            <div class="panel-head">
-                <div class="panel-title-wrap">
-                    <div class="panel-indicator" style="background:var(--red);box-shadow:0 0 6px var(--red)"></div>
-                    <span class="panel-title">FAILURE ANALYSIS</span>
-                </div>
-                <span class="panel-meta">Root cause breakdown</span>
+      <!-- AGENT -->
+      <div class="sc" style="--sc-color:var(--green)">
+        <div class="sc-bar"></div>
+        <div class="sc-body">
+          <div class="sc-header">
+            <span class="sc-mode" style="color:var(--green)">Single Agent</span>
+            <div class="sc-status-dot online" style="background:var(--green);box-shadow:0 0 6px var(--green)"></div>
+          </div>
+          <div class="sc-score none" id="agent-score">—</div>
+          <div class="sc-divider"></div>
+          <div class="sc-stats">
+            <div>
+              <div class="sc-stat-label">Pass Rate</div>
+              <div class="sc-stat-val" id="agent-pass">—</div>
             </div>
-            <div class="tabs">
-                <button class="tab active" onclick="loadFailures('rag',this)">RAG</button>
-                <button class="tab" onclick="loadFailures('agent',this)">AGENT</button>
-                <button class="tab" onclick="loadFailures('multi_agent',this)">MULTI</button>
+            <div>
+              <div class="sc-stat-label">Avg Latency</div>
+              <div class="sc-stat-val" id="agent-latency">—</div>
             </div>
-            <div id="failuresList">
-                <div class="empty">No failures recorded yet.</div>
-            </div>
+          </div>
+          <div class="sc-date" id="agent-date">No runs yet</div>
         </div>
+      </div>
+
+      <!-- MULTI-AGENT -->
+      <div class="sc" style="--sc-color:var(--yellow)">
+        <div class="sc-bar" style="background:var(--yellow)"></div>
+        <div class="sc-body">
+          <div class="sc-header">
+            <span class="sc-mode" style="color:var(--yellow)">Multi-Agent</span>
+            <div class="sc-status-dot online" style="background:var(--yellow);box-shadow:0 0 6px var(--yellow)"></div>
+          </div>
+          <div class="sc-score none" id="multi-score">—</div>
+          <div class="sc-divider"></div>
+          <div class="sc-stats">
+            <div>
+              <div class="sc-stat-label">Pass Rate</div>
+              <div class="sc-stat-val" id="multi-pass">—</div>
+            </div>
+            <div>
+              <div class="sc-stat-label">Avg Latency</div>
+              <div class="sc-stat-val" id="multi-latency">—</div>
+            </div>
+          </div>
+          <div class="sc-date" id="multi-date">No runs yet</div>
+        </div>
+      </div>
 
     </div>
+  </div>
+
+  <!-- REGRESSION ALERTS -->
+  <div class="alerts-wrap" id="alertsSection">
+    <div class="row-label">Regression Alerts</div>
+    <div id="alertsList"></div>
+  </div>
+
+  <!-- EVAL CONTROLS -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">
+        <div class="panel-title-bar"></div>
+        Trigger Evaluation
+      </div>
+      <span class="panel-meta">Connects to live Industrial AI Copilot</span>
+    </div>
+    <div class="eval-grid">
+      <div class="eval-col">
+        <span class="eval-label">RAG · 10 cases · ~2 min</span>
+        <button class="run-btn rag-btn" onclick="triggerEval('rag')">Run RAG Eval</button>
+      </div>
+      <div class="eval-col">
+        <span class="eval-label">Agent · 10 cases · ~3 min</span>
+        <button class="run-btn agent-btn" onclick="triggerEval('agent')">Run Agent Eval</button>
+      </div>
+      <div class="eval-col">
+        <span class="eval-label">Multi-Agent · 5 cases · ~5 min</span>
+        <button class="run-btn multi-btn" onclick="triggerEval('multi-agent')">Run Multi-Agent Eval</button>
+      </div>
+      <div class="eval-col all-col">
+        <span class="eval-label">Full suite · ~10 min</span>
+        <button class="run-btn all-btn" onclick="triggerEval('all')">Run All Suites</button>
+      </div>
+    </div>
+    <div class="run-status-bar">
+      <div class="run-spinner" id="runSpinner"></div>
+      <span id="runStatusText"></span>
+    </div>
+  </div>
+
+  <!-- TWO COLUMN -->
+  <div class="two-col">
+
+    <!-- RECENT RUNS -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <div class="panel-title-bar"></div>
+          Recent Eval Runs
+        </div>
+        <button class="run-btn" onclick="loadDashboard()"
+                style="padding:4px 12px;font-size:8px;width:auto">
+          Refresh
+        </button>
+      </div>
+      <div class="runs-scroll">
+        <table class="runs-table" id="runsTable">
+          <thead>
+            <tr>
+              <th>Mode</th>
+              <th>Score</th>
+              <th>Pass Rate</th>
+              <th>Cases</th>
+              <th>Latency</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="runsBody">
+            <tr><td colspan="6" class="empty">No runs yet. Trigger an evaluation above.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- FAILURE ANALYSIS -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <div class="panel-title-bar" style="background:var(--red);box-shadow:0 0 6px var(--red)"></div>
+          Failure Analysis
+        </div>
+        <span class="panel-meta">Root cause · Recent failures</span>
+      </div>
+      <div class="tabs">
+        <button class="tab active" onclick="loadFailures('rag',this)">RAG</button>
+        <button class="tab" onclick="loadFailures('agent',this)">Agent</button>
+        <button class="tab" onclick="loadFailures('multi_agent',this)">Multi-Agent</button>
+      </div>
+      <div id="failuresList">
+        <div class="empty">No failures recorded yet.</div>
+      </div>
+    </div>
+
+  </div>
 
 </div><!-- /main -->
 
 <script>
-    const API = window.location.origin;
+const API = window.location.origin;
 
-    // ── Load dashboard summary ───────────────────────────────────────────────
-    async function loadDashboard() {
-        try {
-            const res  = await fetch(`${API}/dashboard/summary`);
-            const data = await res.json();
-            updateScoreCards(data);
-            updateAlerts(data.regression_alerts || []);
-            loadRecentRuns();
-            loadFailures('rag');
-        } catch(e) {
-            console.error('Dashboard load failed:', e);
+// ── Load dashboard ───────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const res  = await fetch(`${API}/dashboard/summary`);
+    const data = await res.json();
+    updateScoreCards(data);
+    updateAlerts(data.regression_alerts || []);
+    loadRecentRuns();
+    loadFailures('rag');
+  } catch(e) {
+    console.error('Dashboard load failed:', e);
+  }
+}
+
+function updateScoreCards(data) {
+  const modes = {
+    rag:         {score:'rag-score',   pass:'rag-pass',   latency:'rag-latency',   date:'rag-date'},
+    agent:       {score:'agent-score', pass:'agent-pass', latency:'agent-latency', date:'agent-date'},
+    multi_agent: {score:'multi-score', pass:'multi-pass', latency:'multi-latency', date:'multi-date'},
+  };
+
+  for (const [mode, ids] of Object.entries(modes)) {
+    const d     = data[mode];
+    const score = d?.avg_score;
+    const el    = document.getElementById(ids.score);
+
+    if (score === null || score === undefined) {
+      el.textContent = '—';
+      el.className   = 'sc-score none';
+    } else {
+      el.textContent = (score * 100).toFixed(1) + '%';
+      el.className   = 'sc-score ' + (score >= 0.85 ? 'good' : score >= 0.70 ? 'warn' : 'bad');
     }
 
-    function updateScoreCards(data) {
-        const modes = {
-            rag:         { score: 'rag-score',   pass: 'rag-pass',   latency: 'rag-latency',   date: 'rag-date'   },
-            agent:       { score: 'agent-score', pass: 'agent-pass', latency: 'agent-latency', date: 'agent-date' },
-            multi_agent: { score: 'multi-score', pass: 'multi-pass', latency: 'multi-latency', date: 'multi-date' },
-        };
+    const total = (d?.passed || 0) + (d?.failed || 0);
+    const rate  = total > 0 ? ((d.passed / total) * 100).toFixed(1) + '%' : '—';
+    document.getElementById(ids.pass).textContent    = rate;
+    document.getElementById(ids.latency).textContent = d?.avg_latency ? d.avg_latency.toFixed(2) + 's' : '—';
+    document.getElementById(ids.date).textContent    = d?.finished_at
+      ? new Date(d.finished_at).toLocaleDateString() : 'No runs yet';
+  }
+}
 
-        for (const [mode, ids] of Object.entries(modes)) {
-            const d     = data[mode];
-            const score = d?.avg_score;
-            const el    = document.getElementById(ids.score);
+function updateAlerts(alerts) {
+  const section = document.getElementById('alertsSection');
+  const list    = document.getElementById('alertsList');
 
-            if (score === null || score === undefined) {
-                el.textContent = '—';
-                el.className   = 'sc-score none';
-            } else {
-                el.textContent = (score * 100).toFixed(1) + '%';
-                el.className   = 'sc-score ' + (score >= 0.85 ? 'good' : score >= 0.70 ? 'warn' : 'bad');
-            }
+  if (!alerts || alerts.length === 0) {
+    section.classList.remove('visible');
+    return;
+  }
 
-            const total = (d?.passed || 0) + (d?.failed || 0);
-            const rate  = total > 0 ? ((d.passed / total) * 100).toFixed(1) + '%' : '—';
-            document.getElementById(ids.pass).textContent    = rate;
-            document.getElementById(ids.latency).textContent = d?.avg_latency ? d.avg_latency.toFixed(2) + 's' : '—';
-            document.getElementById(ids.date).textContent    = d?.finished_at
-                ? new Date(d.finished_at).toLocaleDateString() : 'No runs yet';
-        }
-    }
+  section.classList.add('visible');
+  list.innerHTML = alerts.map(a => `
+    <div class="alert-item">
+      <span class="alert-icon">⚠</span>
+      <div class="alert-body">
+        <strong>REGRESSION DETECTED</strong> —
+        ${a.eval_mode.toUpperCase()} score dropped
+        ${a.drop_pct.toFixed(1)}%
+        (${(a.previous_score*100).toFixed(1)}% → ${(a.current_score*100).toFixed(1)}%)
+        · ${new Date(a.alerted_at).toLocaleDateString()}
+      </div>
+    </div>
+  `).join('');
+}
 
-    function updateAlerts(alerts) {
-        const section = document.getElementById('alertsSection');
-        const list    = document.getElementById('alertsList');
+// ── Recent runs ──────────────────────────────────────────────────────────────
+async function loadRecentRuns() {
+  try {
+    const res  = await fetch(`${API}/results?limit=15`);
+    const data = await res.json();
+    renderRunsTable(data.runs || []);
+  } catch(e) {
+    console.error('Load runs failed:', e);
+  }
+}
 
-        if (!alerts || alerts.length === 0) {
-            section.classList.remove('visible');
-            return;
-        }
+function renderRunsTable(runs) {
+  const tbody = document.getElementById('runsBody');
+  if (!runs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs yet.</td></tr>';
+    return;
+  }
 
-        section.classList.add('visible');
-        list.innerHTML = alerts.map(a => `
-            <div class="alert-card">
-                <span class="alert-icon">⚠</span>
-                <div class="alert-text">
-                    <strong>REGRESSION DETECTED</strong> —
-                    ${a.eval_mode.toUpperCase()} score dropped
-                    ${a.drop_pct.toFixed(1)}%
-                    (${(a.previous_score*100).toFixed(1)}% → ${(a.current_score*100).toFixed(1)}%)
-                    · ${new Date(a.alerted_at).toLocaleDateString()}
-                </div>
-            </div>
-        `).join('');
-    }
+  tbody.innerHTML = runs.map(r => {
+    const total    = (r.passed || 0) + (r.failed || 0);
+    const passRate = total > 0 ? ((r.passed / total) * 100).toFixed(0) + '%' : '—';
+    const score    = r.avg_score !== null ? (r.avg_score * 100).toFixed(1) + '%' : '—';
+    const cls      = r.avg_score >= 0.85 ? 'good' : r.avg_score >= 0.70 ? 'warn' : 'bad';
+    const date     = r.finished_at
+      ? new Date(r.finished_at).toLocaleDateString() : 'Running...';
+    const modeDisp = r.eval_mode.replace('_', ' ');
 
-    // ── Recent runs table ────────────────────────────────────────────────────
-    async function loadRecentRuns() {
-        try {
-            const res  = await fetch(`${API}/results?limit=15`);
-            const data = await res.json();
-            renderRunsTable(data.runs || []);
-        } catch(e) {
-            console.error('Load runs failed:', e);
-        }
-    }
+    return `<tr>
+      <td><span class="mode-chip ${r.eval_mode}">${modeDisp.toUpperCase()}</span></td>
+      <td><span class="score-chip ${cls}">${score}</span></td>
+      <td>${passRate}</td>
+      <td>${r.passed}/${total}</td>
+      <td>${r.avg_latency ? r.avg_latency.toFixed(2) + 's' : '—'}</td>
+      <td>${date}</td>
+    </tr>`;
+  }).join('');
+}
 
-    function renderRunsTable(runs) {
-        const tbody = document.getElementById('runsBody');
-        if (!runs.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs yet.</td></tr>';
-            return;
-        }
+// ── Failure analysis ─────────────────────────────────────────────────────────
+async function loadFailures(mode, tabEl = null) {
+  if (tabEl) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tabEl.classList.add('active');
+  }
+  try {
+    const res  = await fetch(`${API}/failures/${mode}?limit=8`);
+    const data = await res.json();
+    renderFailures(data.failures || []);
+  } catch(e) {
+    document.getElementById('failuresList').innerHTML =
+      '<div class="empty">Could not load failures.</div>';
+  }
+}
 
-        tbody.innerHTML = runs.map(r => {
-            const total    = (r.passed || 0) + (r.failed || 0);
-            const passRate = total > 0 ? ((r.passed / total) * 100).toFixed(0) + '%' : '—';
-            const score    = r.avg_score !== null ? (r.avg_score * 100).toFixed(1) + '%' : '—';
-            const cls      = r.avg_score >= 0.85 ? 'good' : r.avg_score >= 0.70 ? 'warn' : 'bad';
-            const date     = r.finished_at
-                ? new Date(r.finished_at).toLocaleDateString() : 'Running...';
-            const modeDisp = r.eval_mode.replace('_', ' ');
+function renderFailures(failures) {
+  const el = document.getElementById('failuresList');
+  if (!failures.length) {
+    el.innerHTML = '<div class="empty">No failures recorded for this mode.</div>';
+    return;
+  }
+  el.innerHTML = failures.map(f => `
+    <div class="failure-item">
+      <div class="fi-top">
+        <span class="fi-id">${f.case_id}</span>
+        <span class="fi-score">score: ${f.score?.toFixed(3) || '—'}</span>
+      </div>
+      <div class="fi-query">${f.query}</div>
+      <div class="fi-reason">${f.failure_reason || f.judge_reasoning || 'No reason recorded'}</div>
+    </div>
+  `).join('');
+}
 
-            return `<tr>
-                <td><span class="mode-badge ${r.eval_mode}">${modeDisp.toUpperCase()}</span></td>
-                <td><span class="score-pill ${cls}">${score}</span></td>
-                <td>${passRate}</td>
-                <td>${r.passed}/${total}</td>
-                <td>${r.avg_latency ? r.avg_latency.toFixed(2) + 's' : '—'}</td>
-                <td>${date}</td>
-            </tr>`;
-        }).join('');
-    }
+// ── Trigger eval ─────────────────────────────────────────────────────────────
+async function triggerEval(mode) {
+  const spinner    = document.getElementById('runSpinner');
+  const statusText = document.getElementById('runStatusText');
+  const buttons    = document.querySelectorAll('.run-btn');
 
-    // ── Failure analysis ─────────────────────────────────────────────────────
-    async function loadFailures(mode, tabEl = null) {
-        if (tabEl) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            tabEl.classList.add('active');
-        }
-        try {
-            const res  = await fetch(`${API}/failures/${mode}?limit=8`);
-            const data = await res.json();
-            renderFailures(data.failures || []);
-        } catch(e) {
-            document.getElementById('failuresList').innerHTML =
-                '<div class="empty">Could not load failures.</div>';
-        }
-    }
+  buttons.forEach(b => b.disabled = true);
+  spinner.classList.add('visible');
 
-    function renderFailures(failures) {
-        const el = document.getElementById('failuresList');
-        if (!failures.length) {
-            el.innerHTML = '<div class="empty">No failures recorded for this mode.</div>';
-            return;
-        }
-        el.innerHTML = failures.map(f => `
-            <div class="failure-item">
-                <div class="fi-header">
-                    <span class="fi-id">${f.case_id}</span>
-                    <span class="fi-score">score: ${f.score?.toFixed(3) || '—'}</span>
-                </div>
-                <div class="fi-query">${f.query}</div>
-                <div class="fi-reason">${f.failure_reason || f.judge_reasoning || 'No reason recorded'}</div>
-            </div>
-        `).join('');
-    }
+  const messages = {
+    rag:           'Running RAG evaluation — 10 cases, ~2 min...',
+    agent:         'Running Agent evaluation — 10 cases, ~3 min...',
+    'multi-agent': 'Running Multi-Agent evaluation — 5 cases, ~5 min...',
+    all:           'Running full suite: RAG → Agent → Multi-Agent, ~10 min...',
+  };
+  statusText.textContent = messages[mode] || 'Running evaluation...';
 
-    // ── Trigger eval ─────────────────────────────────────────────────────────
-    async function triggerEval(mode) {
-        const spinner    = document.getElementById('runSpinner');
-        const statusText = document.getElementById('runStatusText');
-        const buttons    = document.querySelectorAll('.run-btn');
+  try {
+    const res  = await fetch(`${API}/eval/${mode}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({run_label: ''})
+    });
+    const data = await res.json();
+    statusText.textContent = data.message + (data.note ? ' · ' + data.note : '');
 
-        buttons.forEach(b => b.disabled = true);
-        spinner.classList.add('visible');
+    setTimeout(() => {
+      loadDashboard();
+      spinner.classList.remove('visible');
+      statusText.textContent = 'Eval started · Auto-refreshing in 60s...';
+      setTimeout(() => {
+        loadDashboard();
+        statusText.textContent = '';
+        buttons.forEach(b => b.disabled = false);
+      }, 60000);
+    }, 5000);
 
-        const messages = {
-            rag:           'Running RAG evaluation — 10 cases, approx 2 min...',
-            agent:         'Running Agent evaluation — 10 cases, approx 3 min...',
-            'multi-agent': 'Running Multi-Agent evaluation — 5 cases, approx 5 min...',
-            all:           'Running full suite: RAG → Agent → Multi-Agent, approx 10 min...',
-        };
-        statusText.textContent = messages[mode] || 'Running evaluation...';
+  } catch(e) {
+    statusText.textContent = `Error: ${e.message}`;
+    spinner.classList.remove('visible');
+    buttons.forEach(b => b.disabled = false);
+  }
+}
 
-        try {
-            const res  = await fetch(`${API}/eval/${mode}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({run_label: ''})
-            });
-            const data = await res.json();
-            statusText.textContent = data.message + (data.note ? ' · ' + data.note : '');
-
-            setTimeout(() => {
-                loadDashboard();
-                spinner.classList.remove('visible');
-                statusText.textContent = 'Eval started · Auto-refreshing in 60s...';
-                setTimeout(() => {
-                    loadDashboard();
-                    statusText.textContent = '';
-                    buttons.forEach(b => b.disabled = false);
-                }, 60000);
-            }, 5000);
-
-        } catch(e) {
-            statusText.textContent = `Error: ${e.message}`;
-            spinner.classList.remove('visible');
-            buttons.forEach(b => b.disabled = false);
-        }
-    }
-
-    // ── Init ─────────────────────────────────────────────────────────────────
-    loadDashboard();
-    setInterval(loadDashboard, 30000);
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadDashboard();
+setInterval(loadDashboard, 30000);
 </script>
-
 </body>
 </html>
-
