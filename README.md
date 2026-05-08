@@ -216,9 +216,9 @@ agenteval/
 │   ├── judges/
 │   │   └── llm_judge.py              # LLM-as-judge scoring engine
 │   ├── store/
-│   │   └── results_store.py          # SQLite persistence layer
-│   └── api/
-│       └── eval_router.py            # (reserved for future use)
+│       └── results_store.py          # SQLite persistence layer
+│ 
+│                   
 ├── tests/
 │   └── test_agenteval.py             # Full pytest suite
 ├── scripts/
